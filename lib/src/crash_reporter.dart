@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'crash_reporter_config.dart';
 import 'developer_dao.dart';
 import 'developer_model.dart';
+import 'telegram_user_model.dart';
 
 class CrashReporter {
   CrashReporter._();
@@ -94,9 +95,8 @@ class CrashReporter {
         return;
       }
 
-      final seen = <String>{};
       final dao = CrashDeveloperDao();
-      final developers = await dao.getAll();
+      final seen = <String>{};
 
       for (final update in results) {
         final msg = (update as Map<String, dynamic>)['message'] as Map<String, dynamic>?;
@@ -110,6 +110,7 @@ class CrashReporter {
         final firstName = from['first_name'] as String? ?? '';
         final lastName = from['last_name'] as String? ?? '';
         final username = from['username'] as String? ?? '';
+        final languageCode = from['language_code'] as String? ?? 'en';
         final fullName = '$firstName $lastName'.trim();
 
         debugPrint(
@@ -117,22 +118,13 @@ class CrashReporter {
           'chat_id: $chatId | name: $fullName | username: @$username',
         );
 
-        // Auto-match a developer by name and update their chat ID if missing
-        for (final dev in developers) {
-          if (dev.telegramChatId.isNotEmpty) continue;
-          final devName = dev.fullName.trim().toLowerCase();
-          if (devName == fullName.toLowerCase() ||
-              devName.contains(firstName.toLowerCase()) ||
-              firstName.toLowerCase().contains(devName.split(' ').first)) {
-            if (dev.id != null) {
-              await dao.updateTelegramChatId(dev.id!, chatId);
-              debugPrint(
-                'CrashReporter: Telegram chat ID auto-assigned — '
-                '${dev.fullName} → $chatId',
-              );
-            }
-          }
-        }
+        await dao.insertOrIgnoreTelegramUser(TelegramUser(
+          telegramChatId: chatId,
+          firstName: firstName,
+          lastName: lastName,
+          username: username,
+          languageCode: languageCode,
+        ));
       }
     } catch (e) {
       debugPrint('CrashReporter: Telegram getUpdates failed — $e');
@@ -148,32 +140,29 @@ class CrashReporter {
     }
     try {
       final dao = CrashDeveloperDao();
-      final pending = await dao.getUnsyncedTelegramDevelopers();
+      final pending = await dao.getUnsyncedTelegramUsers();
       if (pending.isEmpty) {
         debugPrint('CrashReporter: Telegram sync — no pending records');
         return;
       }
-      for (final dev in pending) {
-        await _syncOneTelegramDeveloper(dao, dev, endpoint);
+      for (final user in pending) {
+        await _syncOneTelegramUser(dao, user, endpoint);
       }
     } catch (e) {
       debugPrint('CrashReporter: Telegram sync failed — $e');
     }
   }
 
-  static Future<void> _syncOneTelegramDeveloper(
-      CrashDeveloperDao dao, CrashDeveloper dev, String endpoint) async {
+  static Future<void> _syncOneTelegramUser(
+      CrashDeveloperDao dao, TelegramUser user, String endpoint) async {
     try {
-      final parts = dev.fullName.trim().split(RegExp(r'\s+'));
-      final firstName = parts.isNotEmpty ? parts.first : dev.fullName;
-      final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
-      final chatIdValue = int.tryParse(dev.telegramChatId) ?? dev.telegramChatId;
+      final chatIdValue = int.tryParse(user.telegramChatId) ?? user.telegramChatId;
 
       final body = jsonEncode({
         'telegramChatId': chatIdValue,
-        'first_name': firstName,
-        'last_name': lastName,
-        'language_code': 'en',
+        'first_name': user.firstName,
+        'last_name': user.lastName,
+        'language_code': user.languageCode,
       });
 
       debugPrint('CrashReporter: Telegram sync → POST $endpoint');
@@ -194,13 +183,13 @@ class CrashReporter {
 
       final decoded = jsonDecode(responseBody) as Map<String, dynamic>?;
       if (decoded != null && decoded['IsOkay'] == true) {
-        if (dev.id != null) await dao.markTelegramSynced(dev.id!);
-        debugPrint('CrashReporter: Telegram sync succeeded for ${dev.fullName}');
+        if (user.id != null) await dao.markTelegramUserSynced(user.id!);
+        debugPrint('CrashReporter: Telegram sync succeeded for ${user.firstName} ${user.lastName} (${user.telegramChatId})');
       } else {
-        debugPrint('CrashReporter: Telegram sync rejected for ${dev.fullName} — ${decoded?['Message'] ?? responseBody}');
+        debugPrint('CrashReporter: Telegram sync rejected for ${user.firstName} — ${decoded?['Message'] ?? responseBody}');
       }
     } catch (e) {
-      debugPrint('CrashReporter: Telegram sync failed for ${dev.fullName} — $e');
+      debugPrint('CrashReporter: Telegram sync failed for ${user.firstName} — $e');
     }
   }
 
