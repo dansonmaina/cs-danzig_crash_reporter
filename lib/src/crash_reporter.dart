@@ -50,11 +50,17 @@ class CrashReporter {
     await Future.wait([_loadDeviceInfo(), _loadAppVersion()]);
     _initialized = true;
     debugPrint('✅ CrashReporter initialized — device: $_deviceInfo | app: $_appVersion');
-    if (config.telegramBotToken.isNotEmpty) {
-      fetchTelegramUpdates().ignore();
+    if (config.telegramBotToken.isNotEmpty || config.telegramSyncEndpoint.isNotEmpty) {
+      _fetchThenSync().ignore();
     }
-    if (config.telegramSyncEndpoint.isNotEmpty) {
-      syncTelegramIds().ignore();
+  }
+
+  static Future<void> _fetchThenSync() async {
+    if (_config!.telegramBotToken.isNotEmpty) {
+      await fetchTelegramUpdates();
+    }
+    if (_config!.telegramSyncEndpoint.isNotEmpty) {
+      await syncTelegramIds();
     }
   }
 
