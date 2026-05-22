@@ -21,7 +21,7 @@ class CrashDeveloper {
     this.syncStatus = 'synced',
   });
 
-  CrashDeveloper copyWith({String? telegramChatId}) => CrashDeveloper(
+  CrashDeveloper copyWith({String? telegramChatId, String? syncStatus}) => CrashDeveloper(
         id: id,
         fullName: fullName,
         phone: phone,
@@ -30,7 +30,7 @@ class CrashDeveloper {
         appCode: appCode,
         clientName: clientName,
         telegramChatId: telegramChatId ?? this.telegramChatId,
-        syncStatus: syncStatus,
+        syncStatus: syncStatus ?? this.syncStatus,
       );
 
   factory CrashDeveloper.fromMap(Map<String, dynamic> map) => CrashDeveloper(

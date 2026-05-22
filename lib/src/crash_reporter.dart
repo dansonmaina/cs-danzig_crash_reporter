@@ -50,6 +50,66 @@ class CrashReporter {
     await Future.wait([_loadDeviceInfo(), _loadAppVersion()]);
     _initialized = true;
     debugPrint('✅ CrashReporter initialized — device: $_deviceInfo | app: $_appVersion');
+    if (config.telegramSyncEndpoint.isNotEmpty) {
+      syncTelegramIds().ignore();
+    }
+  }
+
+  static Future<void> syncTelegramIds() async {
+    if (_config == null) return;
+    final endpoint = _config!.telegramSyncEndpoint;
+    if (endpoint.isEmpty) {
+      debugPrint('CrashReporter: Telegram sync skipped — telegramSyncEndpoint not configured');
+      return;
+    }
+    try {
+      final dao = CrashDeveloperDao();
+      final pending = await dao.getUnsyncedTelegramDevelopers();
+      if (pending.isEmpty) {
+        debugPrint('CrashReporter: Telegram sync — no pending records');
+        return;
+      }
+      for (final dev in pending) {
+        await _syncOneTelegramDeveloper(dao, dev, endpoint);
+      }
+    } catch (e) {
+      debugPrint('CrashReporter: Telegram sync failed — $e');
+    }
+  }
+
+  static Future<void> _syncOneTelegramDeveloper(
+      CrashDeveloperDao dao, CrashDeveloper dev, String endpoint) async {
+    try {
+      final parts = dev.fullName.trim().split(RegExp(r'\s+'));
+      final firstName = parts.isNotEmpty ? parts.first : dev.fullName;
+      final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+      final chatIdValue = int.tryParse(dev.telegramChatId) ?? dev.telegramChatId;
+
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      final request = await client
+          .postUrl(Uri.parse(endpoint))
+          .timeout(const Duration(seconds: 10));
+      request.headers.set('Content-Type', 'application/json; charset=utf-8');
+      request.headers.set('Accept', 'application/json');
+      request.add(utf8.encode(jsonEncode({
+        'telegramChatId': chatIdValue,
+        'first_name': firstName,
+        'last_name': lastName,
+        'language_code': 'en',
+      })));
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      final responseBody = await response.transform(utf8.decoder).join();
+      client.close(force: false);
+      final decoded = jsonDecode(responseBody) as Map<String, dynamic>?;
+      if (decoded != null && decoded['IsOkay'] == true) {
+        if (dev.id != null) await dao.markTelegramSynced(dev.id!);
+        debugPrint('CrashReporter: Telegram sync succeeded for ${dev.fullName}');
+      } else {
+        debugPrint('CrashReporter: Telegram sync rejected for ${dev.fullName} — ${decoded?['Message'] ?? responseBody}');
+      }
+    } catch (e) {
+      debugPrint('CrashReporter: Telegram sync failed for ${dev.fullName} — $e');
+    }
   }
 
   static Future<void> onFlutterError(FlutterErrorDetails details) async {

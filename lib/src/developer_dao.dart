@@ -14,7 +14,7 @@ class CrashDeveloperDao {
     final dir = await getApplicationDocumentsDirectory();
     return openDatabase(
       join(dir.path, 'danzig_crash_reporter.db'),
-      version: 1,
+      version: 2,
       onCreate: (db, _) => db.execute('''
         CREATE TABLE $_tableName (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,9 +25,24 @@ class CrashDeveloperDao {
           app_code TEXT NOT NULL DEFAULT '',
           client_name TEXT NOT NULL DEFAULT '',
           telegram_chat_id TEXT NOT NULL DEFAULT '',
-          sync_status TEXT NOT NULL DEFAULT 'synced'
+          sync_status TEXT NOT NULL DEFAULT 'pending'
         )
       '''),
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          try {
+            await db.execute(
+              "ALTER TABLE $_tableName ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'pending'",
+            );
+          } catch (_) {
+            // Column already exists — safe to ignore
+          }
+          // Mark any existing records that have a telegram ID as pending so they get synced
+          await db.execute(
+            "UPDATE $_tableName SET sync_status = 'pending' WHERE telegram_chat_id != ''",
+          );
+        }
+      },
     );
   }
 
@@ -36,12 +51,22 @@ class CrashDeveloperDao {
     return maps.map(CrashDeveloper.fromMap).toList();
   }
 
+  Future<List<CrashDeveloper>> getUnsyncedTelegramDevelopers() async {
+    final maps = await (await _database).query(
+      _tableName,
+      where: "sync_status = 'pending' AND telegram_chat_id != ''",
+    );
+    return maps.map(CrashDeveloper.fromMap).toList();
+  }
+
   Future<void> replaceAll(List<CrashDeveloper> developers) async {
     final db = await _database;
     await db.transaction((txn) async {
       await txn.delete(_tableName);
       for (final dev in developers) {
-        await txn.insert(_tableName, dev.toMap());
+        final map = dev.toMap();
+        map['sync_status'] = dev.telegramChatId.isNotEmpty ? 'pending' : 'synced';
+        await txn.insert(_tableName, map);
       }
     });
   }
@@ -49,7 +74,19 @@ class CrashDeveloperDao {
   Future<void> updateTelegramChatId(int id, String chatId) async {
     await (await _database).update(
       _tableName,
-      {'telegram_chat_id': chatId},
+      {
+        'telegram_chat_id': chatId,
+        'sync_status': chatId.isNotEmpty ? 'pending' : 'synced',
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> markTelegramSynced(int id) async {
+    await (await _database).update(
+      _tableName,
+      {'sync_status': 'synced'},
       where: 'id = ?',
       whereArgs: [id],
     );

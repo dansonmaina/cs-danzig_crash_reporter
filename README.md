@@ -174,6 +174,20 @@ crashTicketEndpoint: 'https://yourserver.com/api/crash',
 
 Leave `crashTicketEndpoint` empty (`''`) to disable ticket submission even if `enableCrashTicket` is `true`.
 
+### Optional — Telegram chat ID server sync
+
+Syncs developer Telegram chat IDs to your server so the assignment is recorded online. Records are only posted once — once the server confirms (`IsOkay: true`) the record is marked `synced` locally and skipped on future syncs.
+
+```dart
+telegramSyncEndpoint: 'https://yourserver.com/Configuration/AddChatAssignment',
+```
+
+The sync runs automatically on `CrashReporter.initialize()`. You can also trigger it manually after populating the developer database:
+
+```dart
+await CrashReporter.syncTelegramIds();
+```
+
 ### Disable a channel entirely
 
 ```dart

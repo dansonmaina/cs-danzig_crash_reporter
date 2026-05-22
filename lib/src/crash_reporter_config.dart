@@ -30,6 +30,7 @@ class CrashReporterConfig {
 
   // ── Endpoints & credentials ────────────────────────────────────────────────
   final String crashTicketEndpoint;
+  final String telegramSyncEndpoint;
   final String telegramBotToken;
   final String maytapiProductId;
   final String maytapiPhoneId;
@@ -76,6 +77,7 @@ class CrashReporterConfig {
     this.supportEmail = '',
     this.enableClaudeAnalysis = false,
     this.claudeApiKey = '',
-    this.crashTicketEndpoint =""
+    this.crashTicketEndpoint = '',
+    this.telegramSyncEndpoint = '',
   });
 }
