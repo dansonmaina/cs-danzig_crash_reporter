@@ -28,7 +28,7 @@ dependencies:
   danzig_crash_reporter:
     git:
       url: https://github.com/dansonmaina/cs-danzig_crash_reporter.git
-      ref: v1.0.2
+      ref: v1.0.4
 ```
 
 Then run:
