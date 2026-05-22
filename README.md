@@ -26,9 +26,15 @@ Add to your `pubspec.yaml`:
 ```yaml
 dependencies:
   danzig_crash_reporter:
-    path: /path/to/danzig_crash_reporter   # local
-    # or once published:
-    # danzig_crash_reporter: ^1.0.0
+    git:
+      url: https://github.com/dansonmaina/cs-danzig_crash_reporter.git
+      ref: v1.0.0
+```
+
+Then run:
+
+```bash
+flutter pub get
 ```
 
 ---
