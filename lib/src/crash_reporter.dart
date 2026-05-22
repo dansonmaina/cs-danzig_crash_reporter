@@ -50,8 +50,86 @@ class CrashReporter {
     await Future.wait([_loadDeviceInfo(), _loadAppVersion()]);
     _initialized = true;
     debugPrint('✅ CrashReporter initialized — device: $_deviceInfo | app: $_appVersion');
+    if (config.telegramBotToken.isNotEmpty) {
+      fetchTelegramUpdates().ignore();
+    }
     if (config.telegramSyncEndpoint.isNotEmpty) {
       syncTelegramIds().ignore();
+    }
+  }
+
+  static Future<void> fetchTelegramUpdates() async {
+    if (_config == null) return;
+    final token = _config!.telegramBotToken;
+    if (token.isEmpty) return;
+    final url = 'https://api.telegram.org/bot$token/getUpdates';
+    try {
+      debugPrint('CrashReporter: Telegram getUpdates → GET $url');
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+      request.headers.set('Accept', 'application/json');
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      final responseBody = await response.transform(utf8.decoder).join();
+      client.close(force: false);
+
+      debugPrint('CrashReporter: Telegram getUpdates → response [${response.statusCode}]: $responseBody');
+
+      final decoded = jsonDecode(responseBody) as Map<String, dynamic>?;
+      if (decoded == null || decoded['ok'] != true) {
+        debugPrint('CrashReporter: Telegram getUpdates failed — ${decoded?['description'] ?? 'unknown error'}');
+        return;
+      }
+
+      final results = (decoded['result'] as List<dynamic>? ?? []);
+      if (results.isEmpty) {
+        debugPrint('CrashReporter: Telegram getUpdates — no messages yet. Make sure developers text the bot first.');
+        return;
+      }
+
+      final seen = <String>{};
+      final dao = CrashDeveloperDao();
+      final developers = await dao.getAll();
+
+      for (final update in results) {
+        final msg = (update as Map<String, dynamic>)['message'] as Map<String, dynamic>?;
+        if (msg == null) continue;
+        final from = msg['from'] as Map<String, dynamic>?;
+        if (from == null) continue;
+        final chatId = from['id']?.toString() ?? '';
+        if (chatId.isEmpty || seen.contains(chatId)) continue;
+        seen.add(chatId);
+
+        final firstName = from['first_name'] as String? ?? '';
+        final lastName = from['last_name'] as String? ?? '';
+        final username = from['username'] as String? ?? '';
+        final fullName = '$firstName $lastName'.trim();
+
+        debugPrint(
+          'CrashReporter: Telegram user found — '
+          'chat_id: $chatId | name: $fullName | username: @$username',
+        );
+
+        // Auto-match a developer by name and update their chat ID if missing
+        for (final dev in developers) {
+          if (dev.telegramChatId.isNotEmpty) continue;
+          final devName = dev.fullName.trim().toLowerCase();
+          if (devName == fullName.toLowerCase() ||
+              devName.contains(firstName.toLowerCase()) ||
+              firstName.toLowerCase().contains(devName.split(' ').first)) {
+            if (dev.id != null) {
+              await dao.updateTelegramChatId(dev.id!, chatId);
+              debugPrint(
+                'CrashReporter: Telegram chat ID auto-assigned — '
+                '${dev.fullName} → $chatId',
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('CrashReporter: Telegram getUpdates failed — $e');
     }
   }
 
