@@ -85,21 +85,29 @@ class CrashReporter {
       final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
       final chatIdValue = int.tryParse(dev.telegramChatId) ?? dev.telegramChatId;
 
+      final body = jsonEncode({
+        'telegramChatId': chatIdValue,
+        'first_name': firstName,
+        'last_name': lastName,
+        'language_code': 'en',
+      });
+
+      debugPrint('CrashReporter: Telegram sync → POST $endpoint');
+      debugPrint('CrashReporter: Telegram sync → request body: $body');
+
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
       final request = await client
           .postUrl(Uri.parse(endpoint))
           .timeout(const Duration(seconds: 10));
       request.headers.set('Content-Type', 'application/json; charset=utf-8');
       request.headers.set('Accept', 'application/json');
-      request.add(utf8.encode(jsonEncode({
-        'telegramChatId': chatIdValue,
-        'first_name': firstName,
-        'last_name': lastName,
-        'language_code': 'en',
-      })));
+      request.add(utf8.encode(body));
       final response = await request.close().timeout(const Duration(seconds: 10));
       final responseBody = await response.transform(utf8.decoder).join();
       client.close(force: false);
+
+      debugPrint('CrashReporter: Telegram sync → response [${response.statusCode}]: $responseBody');
+
       final decoded = jsonDecode(responseBody) as Map<String, dynamic>?;
       if (decoded != null && decoded['IsOkay'] == true) {
         if (dev.id != null) await dao.markTelegramSynced(dev.id!);
