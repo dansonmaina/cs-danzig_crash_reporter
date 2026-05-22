@@ -76,7 +76,6 @@ class CrashReporterConfig {
     this.supportEmail = '',
     this.enableClaudeAnalysis = false,
     this.claudeApiKey = '',
-    this.crashTicketEndpoint =
-        'https://supportcapture.cs4africa.com/Support/mobile/SubmitCrashReport',
+    this.crashTicketEndpoint =""
   });
 }
