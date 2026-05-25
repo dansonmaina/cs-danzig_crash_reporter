@@ -162,6 +162,7 @@ class CrashReporter {
         'telegramChatId': chatIdValue,
         'first_name': user.firstName,
         'last_name': user.lastName,
+        'username': user.username,
         'language_code': user.languageCode,
       });
 
