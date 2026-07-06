@@ -153,6 +153,93 @@ class CrashReporter {
     }
   }
 
+  /// Fetches the assigned developer list from your backend and stores it in
+  /// the package's local database. Call fire-and-forget after a successful
+  /// login, once `baseUrl` (e.g. your API's domain) is known.
+  ///
+  ///   unawaited(CrashReporter.syncDevelopers(baseUrl: ApiClient.dio.options.baseUrl));
+  static Future<void> syncDevelopers({String baseUrl = ''}) async {
+    if (_config == null) return;
+    final endpoint = _config!.developerSyncEndpoint;
+    if (endpoint.isEmpty) {
+      debugPrint('CrashReporter: Developer sync skipped — developerSyncEndpoint not configured');
+      return;
+    }
+    try {
+      await _fetchDevelopers(endpoint, baseUrl);
+    } catch (e) {
+      debugPrint('CrashReporter: Developer sync failed — $e');
+    }
+  }
+
+  static Future<void> _fetchDevelopers(String endpoint, String baseUrl) async {
+    final info = await PackageInfo.fromPlatform();
+
+    final body = jsonEncode({
+      'client_domain': baseUrl,
+      'client_name': _config?.clientName ?? '',
+      'app_name': _config?.appName ?? '',
+      'app_id': info.packageName,
+      'app_version': info.version,
+      'is_active': 'true',
+    });
+
+    debugPrint('CrashReporter: Developer sync → POST $endpoint');
+    debugPrint('CrashReporter: Developer sync → request body: $body');
+
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    final request = await client.postUrl(Uri.parse(endpoint)).timeout(const Duration(seconds: 10));
+    request.headers.set('Content-Type', 'application/json; charset=utf-8');
+    final bodyBytes = utf8.encode(body);
+    request.headers.contentLength = bodyBytes.length;
+    request.add(bodyBytes);
+
+    final response = await request.close().timeout(const Duration(seconds: 10));
+    final raw = await response.transform(utf8.decoder).join();
+    client.close(force: false);
+
+    debugPrint('CrashReporter: Developer sync → response [${response.statusCode}]: $raw');
+
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    final isOkay = json['IsOkay'] as bool? ?? false;
+    if (!isOkay) {
+      debugPrint('CrashReporter: Developer sync — API returned IsOkay=false — ${json['Message']}');
+      return;
+    }
+
+    final outerResult = json['Result'] as Map<String, dynamic>?;
+    if (outerResult == null) return;
+
+    final clientMap = outerResult['client'] as Map<String, dynamic>? ?? {};
+    final app = outerResult['app'] as Map<String, dynamic>? ?? {};
+    final innerResult = outerResult['Result'] as Map<String, dynamic>? ?? {};
+
+    final clientName = clientMap['client_name'] as String? ?? '';
+    final appId = app['app_id'] as String? ?? '';
+    final appCode = app['app_code'] as String? ?? '';
+
+    final assignedUsers = innerResult['assignedUsers'] as List<dynamic>? ?? [];
+    if (assignedUsers.isEmpty) {
+      debugPrint('CrashReporter: Developer sync — no assigned users returned');
+      return;
+    }
+
+    final developers = assignedUsers.map((u) {
+      final user = u as Map<String, dynamic>;
+      return CrashDeveloper(
+        fullName: user['full_name'] as String? ?? '',
+        phone: user['phone_number'] as String? ?? '',
+        email: user['email_address'] as String? ?? '',
+        appName: appId,
+        appCode: appCode,
+        clientName: clientName,
+      );
+    }).toList();
+
+    await CrashDeveloperDao().replaceAll(developers);
+    debugPrint('CrashReporter: ${developers.length} developer(s) saved to DB');
+  }
+
   static Future<void> _syncOneTelegramUser(
       CrashDeveloperDao dao, TelegramUser user, String endpoint) async {
     try {
